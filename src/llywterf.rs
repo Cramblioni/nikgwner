@@ -51,40 +51,14 @@ impl<O: Write + AsRawFd, I: Read + AsRawFd> TerfLleol<O, I> {
             Err(err) => Err(err),
         }
     }
-    pub fn atod(&mut self) -> io::Result<()> {
-        println!("[wabab] defnyddio fd {}", self.allbwn.as_raw_fd());
-        unsafe {
-            if self.llawnsgrin {
-                let _ = self.allbwn.write(b"\x1b[1049h")?;
-            } else {
-                let _ = self.allbwn.write(b"\x1b[1049l")?;
-            }
-            io_result(tcsetattr(self.allbwn.as_raw_fd(), TCSANOW, &self.cyfred))
+    pub fn newid<'a>(&'a mut self) -> Newidiad<'a, O, I> {
+        let blaen = self.cyfred.clone();
+        Newidiad{
+            targed: self,
+            blaen: blaen,
+            llawnsgrin: None,
         }
     }
-    pub fn canon(&mut self, value: bool) -> &mut Self {
-        self.cyfred.c_lflag &= !(ICANON);
-        if value {
-            self.cyfred.c_lflag |= ICANON;
-        }
-        self
-    }
-    pub fn echo(&mut self, value: bool) -> &mut Self {
-        self.cyfred.c_lflag &= !(ECHO);
-        if value {
-            self.cyfred.c_lflag |= ECHO;
-        }
-        self
-    }
-    pub fn stopi(&mut self, value: bool) -> &mut Self {
-        self.cyfred.c_cc[VMIN] = if value { 1 } else { 0 };
-        self
-    }
-    pub fn llawnsgrin(&mut self, value: bool) -> &mut Self {
-        self.llawnsgrin = value;
-        self
-    }
-
     pub fn ungell(&mut self) -> io::Result<Option<char>> {
         // currently only supports up to 4 byte utf8 strings
         let mut init_buff: [u8; 1] = [0; 1];
@@ -107,13 +81,56 @@ impl<O: Write + AsRawFd, I: Read + AsRawFd> TerfLleol<O, I> {
             .next());
     }
 }
-
 impl<O: Write + AsRawFd, I: Read + AsRawFd> Drop for TerfLleol<O, I> {
     fn drop(&mut self) {
         if self.llawnsgrin {
             let _ = self.allbwn.write(b"\x1b[1049l");
         }
         let _ = unsafe { tcsetattr(self.allbwn.as_raw_fd(), TCSANOW, &self.blaen) };
+    }
+}
+pub struct Newidiad<'a, O: Write + AsRawFd, I: Read + AsRawFd> {
+    targed: &'a mut TerfLleol<O, I>,
+    blaen: termios,
+    llawnsgrin: Option<bool>,
+}
+
+impl<'a, O: Write + AsRawFd, I: Read + AsRawFd> Newidiad<'a, O, I> {
+    pub fn atod(&mut self) -> io::Result<()> {
+        self.targed.cyfred = self.blaen;
+        unsafe {
+            if self.llawnsgrin.is_some() {
+            self.targed.llawnsgrin = self.llawnsgrin.unwrap();
+            if self.llawnsgrin.unwrap() {
+                let _ = self.targed.allbwn.write(b"\x1b[1049h")?;
+            } else {
+                let _ = self.targed.allbwn.write(b"\x1b[1049l")?;
+            }
+            }
+            io_result(tcsetattr(self.targed.allbwn.as_raw_fd(), TCSANOW, &self.blaen))
+        }
+    }
+    pub fn canon(&mut self, value: bool) -> &mut Self {
+        self.blaen.c_lflag &= !(ICANON);
+        if value {
+            self.blaen.c_lflag |= ICANON;
+        }
+        self
+    }
+    pub fn echo(&mut self, value: bool) -> &mut Self {
+        self.blaen.c_lflag &= !(ECHO);
+        if value {
+            self.blaen.c_lflag |= ECHO;
+        }
+        self
+    }
+    pub fn stopi(&mut self, value: bool) -> &mut Self {
+        self.blaen.c_cc[VMIN] = if value { 1 } else { 0 };
+        self
+    }
+    pub fn llawnsgrin(&mut self, value: bool) -> &mut Self {
+        self.llawnsgrin = Some(value);
+        self
     }
 }
 

@@ -194,6 +194,11 @@ impl TodoItem {
                                   .is_some(),
         }
     }
+    fn do_move(&self, sel: &mut Selection, action: CursMove) {
+        if self.check_move(sel, action) {
+            sel.do_move(action);
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -222,102 +227,46 @@ enum CursMove {
 }
 
 mod llywterf;
-fn steps() -> Result<()> {
+fn main() -> Result<()> {
     println!("creating llywterf instance");
     let mut terf = llywterf::TerfLleol::newidd(stdout(), stdin())?;
     println!("setting llywterf");
-    terf.canon(false).echo(false).llawnsgrin(true).atod()?;
+    terf.newid().canon(false).echo(false).llawnsgrin(true).atod()?;
     println!("Continuing");
 
     let mut test = TodoItem::Group(
         String::from("test 1"),
         vec![
-            TodoItem::Task(true, String::from("test 1.1")),
+            TodoItem::Task(false, String::from("test 1.1")),
             TodoItem::Task(false, String::from("test 1.2")),
         ],
     );
-    let mut sel = Selection(vec![1]);
-    println!("\x1b[2J\x1b[1;1HHello, world!");
-    test.render(1, &mut stdout(), None)?;
-    println!("Checking if selection in bounds\n\t= {}", test.bound(&sel));
-    let _ = terf.ungell()?;
-
-    println!("\x1b[2J\x1b[1;1Hmutating - completing test 1.2");
-    let test2 = test.get_mut(&sel).expect("Malimple error");
-    test2.complete(true);
-    test.render(1, &mut stdout(), Some(&sel))?;
-    let _ = terf.ungell()?;
-
-    println!("\x1b[2J\x1b[1;1Hmutating - uncompleting test 1");
-    let test2 = test.get_mut(&Selection(vec![])).expect("Malimple error");
-    test2.complete(false);
-    test.render(1, &mut stdout(), Some(&sel))?;
-    let _ = terf.ungell()?;
-
-    println!("\x1b[2J\x1b[1;1Hmutating - inserting test 1.3");
-    let test2 = test.get_mut(&Selection(vec![])).expect("fuck");
-    test2.insert(TodoItem::Task(false, "test 1.3".to_string()));
-    test.render(1, &mut stdout(), Some(&sel))?;
-    let _ = terf.ungell()?;
-
-    println!("\x1b[2J\x1b[1;1Hmutating - setting test 1 and inserting test 1.2.1");
-    let test2 = test.get_mut(&Selection(vec![])).expect("Malimple error");
-    test2.complete(true);
-    let test2 = test.get_mut(&sel).expect("fuck");
-    test2.insert(TodoItem::Task(false, "test 1.2.1".to_string()));
-    test.render(1, &mut stdout(), Some(&sel))?;
-    let _ = terf.ungell()?;
-
-    println!("\x1b[2J\x1b[1;1HRendering just test 1.2");
-    test.get(&sel)
-        .expect("bounds error")
-        .render(1, &mut stdout(), Some(&Selection(vec![])))?;
-
-    println!("\x1b[2J\x1b[1;1Hmutating - getting node prior test 1.2 and completing");
-    let test2 = test.get_prior_mut(&sel).expect("Malimple error");
-    test2.complete(true);
-    test.render(1, &mut stdout(), Some(&sel))?;
-    let _ = terf.ungell()?;
-
-    println!("\x1b[2J\x1b[1;1Hmoving - in");
-    if test.check_move(&sel, CursMove::In) {
-        println!("check_move success");
-        sel.do_move(CursMove::In);
-    } else {
-        println!("check_move failure");
+    let mut sel = Selection(vec![]);
+    loop {
+        println!("\x1b[2J\x1b[1;1H");
+        test.render(1, &mut stdout(), Some(&sel))?;
+        let lth = terf.ungell()?;
+        if lth.is_none() {break;}
+        match lth.unwrap() {
+            'q' => break,
+            ' ' => {test.get_mut(&sel).map(|x| x.complete(!x.completed()));},
+            'h' => test.do_move(&mut sel, CursMove::Out),
+            'l' => test.do_move(&mut sel, CursMove::In),
+            'j' => test.do_move(&mut sel, CursMove::Down),
+            'k' => test.do_move(&mut sel, CursMove::Up),
+            'i' => {
+                print!("\x1b[H\x1b[2K\x1b[0m> ");
+                stdout().flush()?;
+                let mut buff = String::with_capacity(16);
+                terf.newid().echo(true).canon(true).atod()?;
+                let l = stdin().read_line(&mut buff)?;
+                buff.truncate(l - 1);
+                test.get_mut(&sel).map( move |x|x.insert(TodoItem::Task(false, buff)));
+                terf.newid().echo(false).canon(false).atod()?;
+                /* get input, trim, insert */
+            }
+            _ => (),
+        }
     }
-    test.render(1, &mut stdout(), Some(&sel))?;
-    let _ = terf.ungell()?;
-
-    println!("\x1b[2J\x1b[1;1Hmoving - out");
-    if test.check_move(&sel, CursMove::Out) {
-        println!("check_move success");
-        sel.do_move(CursMove::Out);
-    } else {
-        println!("check_move failure");
-    }
-    test.render(1, &mut stdout(), Some(&sel))?;
-    let _ = terf.ungell()?;
-
-    println!("\x1b[2J\x1b[1;1Hmoving - down");
-    if test.check_move(&sel, CursMove::Down) {
-        println!("check_move success");
-        sel.do_move(CursMove::Down);
-    } else {
-        println!("check_move failure");
-    }
-    test.render(1, &mut stdout(), Some(&sel))?;
-    let _ = terf.ungell()?;
-
-    println!("\x1b[2J\x1b[1;1Hmoving - up");
-    if test.check_move(&sel, CursMove::Up) {
-        println!("check_move success");
-        sel.do_move(CursMove::Up);
-    } else {
-        println!("check_move failure");
-    }
-    test.render(1, &mut stdout(), Some(&sel))?;
-    let _ = terf.ungell()?;
-
     Ok(())
 }
