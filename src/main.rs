@@ -121,8 +121,9 @@ impl TodoItem {
         Some(cur)
     }
     fn get_prior(&self, sel: &Selection) -> Option<&Self> {
+        if sel.0.len() == 0 {return Some(self);}
         let mut cur = self;
-        for i in 0..sel.0.len() - 1 {
+        for i in 0 .. sel.0.len() - 1 {
             let i = sel.0[i];
             match cur {
                 TodoItem::Task(_, _) => {
@@ -179,12 +180,14 @@ impl TodoItem {
                 match x {
                     TodoItem::Task(_, _) => None,
                     TodoItem::Group(_, xs) => {
+                        if sel.0.len() == 0 { return None; }
                         let prior_ind = sel.0[sel.0.len() - 1] as usize;
                         if prior_ind + 1 < xs.len() {Some(())} else {None}
                     }
                 }
             }).is_some(),
             CursMove::Up   => self.get_prior(sel).and_then(|x| {
+                if sel.0.len() == 0 { return None; }
                 let prior_ind = sel.0[sel.0.len() - 1] as usize;
                 if prior_ind > 0 {Some(())} else {None}
             }).is_some(),
@@ -237,8 +240,15 @@ fn main() -> Result<()> {
     let mut test = TodoItem::Group(
         String::from("test 1"),
         vec![
-            TodoItem::Task(false, String::from("test 1.1")),
+            TodoItem::Group(String::from("test 1.1"), vec![
+                            TodoItem::Task(false, String::from("test 1.1.1")),
+                            TodoItem::Task(false, String::from("test 1.1.2")),
+                        ]),
             TodoItem::Task(false, String::from("test 1.2")),
+            TodoItem::Group(String::from("test 1.3"), vec![
+                            TodoItem::Task(false, String::from("test 1.3.1")),
+                            TodoItem::Task(false, String::from("test 1.3.2")),
+                        ]),
         ],
     );
     let mut sel = Selection(vec![]);
@@ -254,6 +264,35 @@ fn main() -> Result<()> {
             'l' => test.do_move(&mut sel, CursMove::In),
             'j' => test.do_move(&mut sel, CursMove::Down),
             'k' => test.do_move(&mut sel, CursMove::Up),
+            'J' => 'round: {
+                // in, down, out'n'down
+                if test.check_move(&sel, CursMove::In)   {sel.do_move(CursMove::In);   break 'round;}
+                if test.check_move(&sel, CursMove::Down) {sel.do_move(CursMove::Down); break 'round;}
+                if test.check_move(&sel, CursMove::Out)  {
+                    let save = Selection(sel.0.clone());
+                    sel.do_move(CursMove::Out);
+                    if !test.check_move(&sel, CursMove::Down) {
+                        sel = save;
+                        break 'round;
+                    }
+                    sel.do_move(CursMove::Down);
+                    break 'round;
+                }
+            }
+            'K' => 'round: {
+                // out, up 
+                if test.check_move(&sel, CursMove::Up) {
+                    sel.do_move(CursMove::Up);
+                    while test.check_move(&sel, CursMove::In) {
+                        sel.do_move(CursMove::In);
+                        while test.check_move(&sel, CursMove::Down) {
+                            sel.do_move(CursMove::Down);
+                        }
+                    }
+                    break 'round;
+                }
+                if test.check_move(&sel, CursMove::Out) {sel.do_move(CursMove::Out); break 'round;} 
+            }
             'i' => {
                 print!("\x1b[H\x1b[2K\x1b[0m> ");
                 stdout().flush()?;
