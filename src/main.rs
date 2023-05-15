@@ -1,4 +1,4 @@
-use std::{io::{stdin, stdout, Result, Write},};
+use std::io::{stdin, stdout, Result, Write};
 #[derive(Clone)]
 enum TodoItem {
     Task(bool, String),
@@ -36,10 +36,17 @@ impl TodoItem {
         }
     }
     fn render<W: Write>(&self, depth: u8, outp: &mut W, sel: Option<&Selection>) -> Result<()> {
-        let selected = if let Some(Selection::Termin) = sel {
-            true
-        } else {
-            false
+        self.render_depth(depth, outp, sel.and_then(|sel| Some((sel, 0))))
+    }
+    fn render_depth<W: Write>(
+        &self,
+        depth: u8,
+        outp: &mut W,
+        sel: Option<(&Selection, usize)>,
+    ) -> Result<()> {
+        let selected = sel.is_some() && {
+            let (s, i) = sel.unwrap();
+            i == s.0.len()
         };
         let msg = self.message();
         let mut out = String::with_capacity(depth as usize + 5 + msg.len());
@@ -62,16 +69,16 @@ impl TodoItem {
             for (i, x) in xs.into_iter().enumerate() {
                 let fsel = if selected {
                     None
-                } else if let Some(Selection::Index(ind, nxt)) = sel {
-                    if *ind == i as u8 {
-                        Some(nxt.as_ref())
-                    } else {
-                        None
-                    }
                 } else {
-                    None
+                    sel.and_then(|sel| {
+                        if sel.0.0[sel.1] as usize == i {
+                            Some((sel.0, sel.1 + 1))
+                        } else {
+                            None
+                        }
+                    })
                 };
-                x.render(depth + 1, outp, fsel)?;
+                x.render_depth(depth + 1, outp, fsel)?;
             }
         }
         if selected {
@@ -80,56 +87,74 @@ impl TodoItem {
         Ok(())
     }
     fn get(&self, sel: &Selection) -> Option<&Self> {
-        if let Selection::Termin = sel {
-            Some(self)
-        } else if let Selection::Index(ind, nxt) = sel {
-            if let TodoItem::Group(_, xs) = self {
-                xs.get(*ind as usize).and_then(|x| x.get(nxt))
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-    fn get_mut(&mut self, sel: &Selection) -> Option<&mut Self> {
-        if let Selection::Termin = sel {
-            Some(self)
-        } else if let Selection::Index(ind, nxt) = sel {
-            if let TodoItem::Group(_, xs) = self {
-                xs.get_mut(*ind as usize).and_then(|x| x.get_mut(nxt))
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-    fn get_prior(&self, sel: &Selection) -> Option<&Self> {
-        match sel {
-            Selection::Termin => None,
-            Selection::Index(ind, x) => match x.as_ref() {
-                Selection::Termin => Some(self),
-                Selection::Index(_, nxt) => match self {
-                    Self::Task(_, _) => None,
-                    Self::Group(_, xs) => xs.get(*ind as usize).and_then(|x| x.get_prior(nxt)),
-                },
-            },
-        }
-    }
-    fn get_prior_mut(&mut self, sel: &Selection) -> Option<&mut Self> {
-        match sel {
-            Selection::Termin => None,
-            Selection::Index(ind, x) => match x.as_ref() {
-                Selection::Termin => Some(self),
-                Selection::Index(_, nxt) => match self {
-                    Self::Task(_, _) => None,
-                    Self::Group(_, xs) => {
-                        xs.get_mut(*ind as usize).and_then(|x| x.get_prior_mut(nxt))
+        let mut cur = self;
+        for i in &(sel.0) {
+            match cur {
+                TodoItem::Task(_, _) => {
+                    return None;
+                }
+                TodoItem::Group(_, xs) => match xs.get(*i as usize) {
+                    Some(x) => cur = x,
+                    None => {
+                        return None;
                     }
                 },
-            },
+            }
         }
+        Some(cur)
+    }
+    fn get_mut(&mut self, sel: &Selection) -> Option<&mut Self> {
+        let mut cur = self;
+        for i in &(sel.0) {
+            match cur {
+                TodoItem::Task(_, _) => {
+                    return None;
+                }
+                TodoItem::Group(_, xs) => match xs.get_mut(*i as usize) {
+                    Some(x) => cur = x,
+                    None => {
+                        return None;
+                    }
+                },
+            }
+        }
+        Some(cur)
+    }
+    fn get_prior(&self, sel: &Selection) -> Option<&Self> {
+        let mut cur = self;
+        for i in 0..sel.0.len() - 1 {
+            let i = sel.0[i];
+            match cur {
+                TodoItem::Task(_, _) => {
+                    return None;
+                }
+                TodoItem::Group(_, xs) => match xs.get(i as usize) {
+                    Some(x) => cur = x,
+                    None => {
+                        return None;
+                    }
+                },
+            }
+        }
+        Some(cur)
+    }
+    fn get_prior_mut(&mut self, sel: &Selection) -> Option<&mut Self> {
+        let mut cur = self;
+        for i in 0..sel.0.len() - 1 {
+            let i = sel.0[i];
+            match cur {
+                TodoItem::Task(_, _) => {
+                    return None;
+                }
+                TodoItem::Group(_, xs) => match xs.get_mut(i as usize) {
+                    Some(x) => cur = x,
+                    None => {
+                        return None;
+                    }
+                },
+            }
+        }
+        Some(cur)
     }
     fn bound(&self, sel: &Selection) -> bool {
         self.get(sel).is_some()
@@ -142,121 +167,48 @@ impl TodoItem {
             }
         }
     }
+    fn is_group(&self) -> bool {
+        match self {
+            TodoItem::Group(_, _) => true,
+            _ => false,
+        }
+    }
     fn check_move(&self, sel: &Selection, action: CursMove) -> bool {
-        let prior = self.get_prior(sel);
-        let select = self.get(sel);
-        let sprior = sel.get_prior();
         match action {
-            CursMove::Out => prior.is_some(),
-            CursMove::In => {
-                select.is_some()
-                    & match select.unwrap() {
-                        TodoItem::Group(_, _) => true,
-                        _ => false,
-                    }
-            }
-            CursMove::Up => {
-                if sprior.is_none() {
-                    return false;
-                }
-                let sprior = sprior.unwrap();
-                // logic
-                match sprior {
-                    Selection::Termin => false,
-                    Selection::Index(i, _) => *i > 0,
-                }
-            }
-            CursMove::Down => {
-                if prior.is_none() {
-                    return false;
-                }
-                let prior = prior.unwrap();
-                if sprior.is_none() {
-                    return false;
-                }
-                let sprior = sprior.unwrap();
-                match prior {
-                    TodoItem::Task(_, _) => false,
+            CursMove::Down => self.get_prior(sel).and_then(|x| {
+                match x {
+                    TodoItem::Task(_, _) => None,
                     TodoItem::Group(_, xs) => {
-                        // logic
-                        match sprior {
-                            Selection::Termin => false,
-                            Selection::Index(i, _) => !((*i + 1) as usize >= xs.len()),
-                        }
+                        let prior_ind = sel.0[sel.0.len() - 1] as usize;
+                        if prior_ind + 1 < xs.len() {Some(())} else {None}
                     }
                 }
-            }
+            }).is_some(),
+            CursMove::Up   => self.get_prior(sel).and_then(|x| {
+                let prior_ind = sel.0[sel.0.len() - 1] as usize;
+                if prior_ind > 0 {Some(())} else {None}
+            }).is_some(),
+            CursMove::Out  => self.get_prior(sel).is_some(),
+            CursMove::In   => self.get(sel)
+                                  .and_then(|x|if x.is_group() {Some(())} else {None})
+                                  .is_some(),
         }
     }
 }
 
 #[derive(Clone)]
-enum Selection {
-    Termin,
-    Index(u8, Box<Selection>),
-}
+
+struct Selection(Vec<u8>);
+// selected is `depth == Selection.0.len()`
 impl Selection {
-    fn get_mut(&mut self) -> &mut Self {
-        match self {
-            Selection::Termin => self,
-            Selection::Index(_, xs) => xs.get_mut(),
-        }
-    }
-    fn get_prior(&self) -> Option<&Self> {
-        match self {
-            Selection::Termin => None,
-            &Selection::Index(_, ref nxt) => match nxt.as_ref() {
-                Selection::Termin => Some(self),
-                _ => nxt.as_ref().get_prior(),
-            },
-        }
-    }
-    fn get_prior_mut(&mut self) -> Option<&mut Self> {
-        if let Selection::Termin = self {
-            return None;
-        }
-        if let Selection::Index(_, nxt) = self {
-            return nxt.as_mut().get_prior_mut();
-        } else {
-            return Some(self);
-        }
-    }
     fn do_move(&mut self, action: CursMove) {
+        // Assumes that it can move
+        let clen = self.0.len();
         match action {
-            CursMove::In => {
-                *self.get_mut() = Selection::Index(0, Box::new(Selection::Termin));
-            }
-            CursMove::Out => {
-                if let Some(x) = self.get_prior_mut() {
-                    *x = Selection::Termin
-                };
-            }
-            CursMove::Up => {
-                if let Some(x) = self.get_prior_mut() {
-                    let mut temp = Selection::Termin;
-                    std::mem::swap(x, &mut temp);
-                    match temp {
-                        Selection::Termin => (),
-                        Selection::Index(i, nxt) => {
-                            temp = Selection::Index(i - 1, nxt);
-                        }
-                    }
-                    std::mem::swap(x, &mut temp);
-                }
-            }
-            CursMove::Down => {
-                if let Some(x) = self.get_prior_mut() {
-                    let mut temp = Selection::Termin;
-                    std::mem::swap(x, &mut temp);
-                    match temp {
-                        Selection::Termin => (),
-                        Selection::Index(i, nxt) => {
-                            temp = Selection::Index(i + 1, nxt);
-                        }
-                    }
-                    std::mem::swap(x, &mut temp);
-                }
-            }
+            CursMove::Down => self.0[ clen - 1] += 1,
+            CursMove::Up => self.0[clen - 1] -= 1,
+            CursMove::Out => {self.0.pop();},
+            CursMove::In => self.0.push(0),
         }
     }
 }
@@ -270,7 +222,7 @@ enum CursMove {
 }
 
 mod llywterf;
-fn main() -> Result<()> {
+fn steps() -> Result<()> {
     println!("creating llywterf instance");
     let mut terf = llywterf::TerfLleol::newidd(stdout(), stdin())?;
     println!("setting llywterf");
@@ -284,8 +236,8 @@ fn main() -> Result<()> {
             TodoItem::Task(false, String::from("test 1.2")),
         ],
     );
-    let mut sel = Selection::Index(1, Box::new(Selection::Termin));
-    println!("Hello, world!");
+    let mut sel = Selection(vec![1]);
+    println!("\x1b[2J\x1b[1;1HHello, world!");
     test.render(1, &mut stdout(), None)?;
     println!("Checking if selection in bounds\n\t= {}", test.bound(&sel));
     let _ = terf.ungell()?;
@@ -297,19 +249,19 @@ fn main() -> Result<()> {
     let _ = terf.ungell()?;
 
     println!("\x1b[2J\x1b[1;1Hmutating - uncompleting test 1");
-    let test2 = test.get_mut(&Selection::Termin).expect("Malimple error");
+    let test2 = test.get_mut(&Selection(vec![])).expect("Malimple error");
     test2.complete(false);
     test.render(1, &mut stdout(), Some(&sel))?;
     let _ = terf.ungell()?;
 
     println!("\x1b[2J\x1b[1;1Hmutating - inserting test 1.3");
-    let test2 = test.get_mut(&Selection::Termin).expect("fuck");
+    let test2 = test.get_mut(&Selection(vec![])).expect("fuck");
     test2.insert(TodoItem::Task(false, "test 1.3".to_string()));
     test.render(1, &mut stdout(), Some(&sel))?;
     let _ = terf.ungell()?;
 
     println!("\x1b[2J\x1b[1;1Hmutating - setting test 1 and inserting test 1.2.1");
-    let test2 = test.get_mut(&Selection::Termin).expect("Malimple error");
+    let test2 = test.get_mut(&Selection(vec![])).expect("Malimple error");
     test2.complete(true);
     let test2 = test.get_mut(&sel).expect("fuck");
     test2.insert(TodoItem::Task(false, "test 1.2.1".to_string()));
@@ -319,7 +271,7 @@ fn main() -> Result<()> {
     println!("\x1b[2J\x1b[1;1HRendering just test 1.2");
     test.get(&sel)
         .expect("bounds error")
-        .render(1, &mut stdout(), Some(&Selection::Termin))?;
+        .render(1, &mut stdout(), Some(&Selection(vec![])))?;
 
     println!("\x1b[2J\x1b[1;1Hmutating - getting node prior test 1.2 and completing");
     let test2 = test.get_prior_mut(&sel).expect("Malimple error");
@@ -327,12 +279,42 @@ fn main() -> Result<()> {
     test.render(1, &mut stdout(), Some(&sel))?;
     let _ = terf.ungell()?;
 
-    println!("\x1b[2J\x1b[1;1HMoving Cursor out");
-    if !test.check_move(&sel, CursMove::Out) {
-        println!("check_move failed");
+    println!("\x1b[2J\x1b[1;1Hmoving - in");
+    if test.check_move(&sel, CursMove::In) {
+        println!("check_move success");
+        sel.do_move(CursMove::In);
     } else {
-        println!("check_move successful");
+        println!("check_move failure");
+    }
+    test.render(1, &mut stdout(), Some(&sel))?;
+    let _ = terf.ungell()?;
+
+    println!("\x1b[2J\x1b[1;1Hmoving - out");
+    if test.check_move(&sel, CursMove::Out) {
+        println!("check_move success");
         sel.do_move(CursMove::Out);
+    } else {
+        println!("check_move failure");
+    }
+    test.render(1, &mut stdout(), Some(&sel))?;
+    let _ = terf.ungell()?;
+
+    println!("\x1b[2J\x1b[1;1Hmoving - down");
+    if test.check_move(&sel, CursMove::Down) {
+        println!("check_move success");
+        sel.do_move(CursMove::Down);
+    } else {
+        println!("check_move failure");
+    }
+    test.render(1, &mut stdout(), Some(&sel))?;
+    let _ = terf.ungell()?;
+
+    println!("\x1b[2J\x1b[1;1Hmoving - up");
+    if test.check_move(&sel, CursMove::Up) {
+        println!("check_move success");
+        sel.do_move(CursMove::Up);
+    } else {
+        println!("check_move failure");
     }
     test.render(1, &mut stdout(), Some(&sel))?;
     let _ = terf.ungell()?;
