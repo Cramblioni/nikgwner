@@ -1,4 +1,7 @@
-use std::io::{stdin, stdout, Result, Write};
+use std::io::{stdin, stdout, Result};
+use std::io::{Read, Write, Error, ErrorKind};
+use std::mem::{size_of, MaybeUninit};
+
 #[derive(Clone)]
 enum TodoItem {
     Task(bool, String),
@@ -251,7 +254,24 @@ fn main() -> Result<()> {
                         ]),
         ],
     );
+
     let mut sel = Selection(vec![]);
+
+    'testo: {
+        /*
+        println!("Testing arbed and lwytho");
+        let mut buff = Vec::<u8>::with_capacity(32);
+        test.arbed(&mut buff)?;
+        println!("llwytho object");
+        let mut out: MaybeUninit<TodoItem> = MaybeUninit::uninit();
+        unsafe { out.assume_init_mut().llwytho(&mut VecRead::new(buff))?; }
+        let out = unsafe { out.assume_init() };
+        out.render(1, &mut stdout(), None)?;
+        */
+        todo!("Re-start saving tests");
+    }
+    terf.ungell()?;
+    
     loop {
         println!("\x1b[2J\x1b[1;1H");
         test.render(1, &mut stdout(), Some(&sel))?;
@@ -304,8 +324,73 @@ fn main() -> Result<()> {
                 terf.newid().echo(false).canon(false).atod()?;
                 /* get input, trim, insert */
             }
+            'w' => {
+                print!("\x1b[H\x1b[2K\x1b[0m> ");
+                stdout().flush()?;
+                let mut buff = String::with_capacity(16);
+                terf.newid().echo(true).canon(true).atod()?;
+                let l = stdin().read_line(&mut buff)?;
+                buff.truncate(l - 1);
+                terf.newid().echo(false).canon(false).atod()?;
+            }
             _ => (),
         }
     }
     Ok(())
+}
+
+trait Arbed where Self: Sized {
+    fn arbed<W: Write>(&self, allbwn: &mut W) -> Result<()>;
+    fn llwytho<R: Read>(whr: &mut MaybeUninit<Self>, mewnbwn: &mut R) -> Result<()>;
+}
+impl Arbed for usize  {
+    fn arbed<W: Write>(&self, allbwn: &mut W) -> Result<()> {
+        allbwn.write(&self.to_le_bytes()).and(Ok(()))
+    }
+    fn llwytho< R: Read>(whr: &mut MaybeUninit<Self>, mewnbwn: &mut R) -> Result<()> {
+        let mut buff: [u8; size_of::<Self>()] = [0; size_of::<Self>()];
+        mewnbwn.read_exact(&mut buff)?;
+        whr.write(usize::from_le_bytes(buff));
+        Ok(())
+    }
+}
+impl Arbed for bool {
+    fn arbed<W: Write>(&self, allbwn:&mut W) -> Result<()> {
+        let buff = (if *self {1} else {0} as u8).to_le_bytes();
+        allbwn.write(&buff)?;
+        Ok(())
+    }
+    fn llwytho<R: Read>(whr: &mut MaybeUninit<Self>, mewnbwn: &mut R) -> Result<()> {
+        let mut buff: [u8; 1] = [ 0 ];
+        mewnbwn.read_exact(&mut buff)?;
+        whr.write(u8::from_le_bytes(buff) != 0);
+        Ok(())
+    }
+}
+impl<T: Arbed> Arbed for Vec<T> {
+    fn arbed<W: Write>(&self, allbwn: &mut W) -> Result<()> {
+        todo!("Implement");
+    }
+    fn llwytho<R: Read>(whr: &mut MaybeUninit<Self>, mewnbwn: &mut R) -> Result<()> {
+        todo!("Implement");
+    }
+}
+
+struct VecRead<T>(Vec<T>, usize);
+impl<T> VecRead<T> { fn new(inp: Vec<T>) -> Self { VecRead(inp, 0) } }
+impl Read for VecRead<u8> {
+    fn read(&mut self, targ: &mut [u8]) -> Result<usize> {
+        if targ.len() <= self.0.len() - self.1 {
+            for i in self.1 .. self.1 + targ.len() {
+                targ[i - self.1] = self.0[i];
+            }
+            self.1 += targ.len();
+            return Ok(targ.len());
+        }
+        let l = self.0.len() - self.1;
+        for i in 0 .. l {
+            targ[i] = self.0[self.1 + i];
+        }
+        Ok(l)
+    } 
 }
