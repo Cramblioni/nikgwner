@@ -1,6 +1,8 @@
 use std::io::{stdin, stdout, Result};
-use std::io::{Read, Write, Error, ErrorKind};
-use std::mem::{size_of, MaybeUninit};
+use std::io::{Read, BufRead, Write, Error, ErrorKind};
+use std::mem::{size_of};
+use std::os::fd::AsRawFd;
+use std::fs::File;
 
 #[derive(Clone)]
 enum TodoItem {
@@ -205,6 +207,14 @@ impl TodoItem {
             sel.do_move(action);
         }
     }
+
+    fn delete(&mut self, sel: &Selection) -> Option<()> {
+        let prev = self.get_prior_mut(sel)?;
+        if let TodoItem::Group(_,xs) = prev {
+            xs.remove(sel.get_end()? as usize);
+        }
+        Some(())
+    }
 }
 
 #[derive(Clone)]
@@ -222,6 +232,9 @@ impl Selection {
             CursMove::In => self.0.push(0),
         }
     }
+    fn get_end(&self) -> Option<u8> {
+        self.0.get(self.0.len() - 1).copied()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -235,7 +248,7 @@ enum CursMove {
 mod llywterf;
 fn main() -> Result<()> {
     println!("creating llywterf instance");
-    let mut terf = llywterf::TerfLleol::newidd(stdout(), stdin())?;
+    let mut terf = llywterf::TerfLleol::newidd(stdout(), stdin().lock())?;
     println!("setting llywterf");
     terf.newid().canon(false).echo(false).llawnsgrin(true).atod()?;
     println!("Continuing");
@@ -257,20 +270,20 @@ fn main() -> Result<()> {
 
     let mut sel = Selection(vec![]);
 
+    /*
     'testo: {
-        /*
+        
         println!("Testing arbed and lwytho");
         let mut buff = Vec::<u8>::with_capacity(32);
         test.arbed(&mut buff)?;
         println!("llwytho object");
-        let mut out: MaybeUninit<TodoItem> = MaybeUninit::uninit();
-        unsafe { out.assume_init_mut().llwytho(&mut VecRead::new(buff))?; }
-        let out = unsafe { out.assume_init() };
+        let out = TodoItem::llwytho(&mut VecRead::new(buff))?;
         out.render(1, &mut stdout(), None)?;
-        */
-        todo!("Re-start saving tests");
+        
+        // todo!("Re-start saving tests");
+        terf.ungell()?;
     }
-    terf.ungell()?;
+    */
     
     loop {
         println!("\x1b[2J\x1b[1;1H");
@@ -314,24 +327,27 @@ fn main() -> Result<()> {
                 if test.check_move(&sel, CursMove::Out) {sel.do_move(CursMove::Out); break 'round;} 
             }
             'i' => {
-                print!("\x1b[H\x1b[2K\x1b[0m> ");
-                stdout().flush()?;
-                let mut buff = String::with_capacity(16);
-                terf.newid().echo(true).canon(true).atod()?;
-                let l = stdin().read_line(&mut buff)?;
-                buff.truncate(l - 1);
-                test.get_mut(&sel).map( move |x|x.insert(TodoItem::Task(false, buff)));
+                let item = prompt(&mut terf)?;
+                test.get_mut(&sel).map( move |x|x.insert(TodoItem::Task(false, item)));
                 terf.newid().echo(false).canon(false).atod()?;
                 /* get input, trim, insert */
             }
             'w' => {
-                print!("\x1b[H\x1b[2K\x1b[0m> ");
-                stdout().flush()?;
-                let mut buff = String::with_capacity(16);
-                terf.newid().echo(true).canon(true).atod()?;
-                let l = stdin().read_line(&mut buff)?;
-                buff.truncate(l - 1);
-                terf.newid().echo(false).canon(false).atod()?;
+                let mut file = File::create(prompt(&mut terf)?)?;
+                test.arbed(&mut file)?;
+            }
+            'W' => {
+                let mut file = File::open(prompt(&mut terf)?)?;
+                match TodoItem::llwytho(&mut file) {
+                    Ok(nxt) => { test = nxt;  }
+                    Err(e)  => {
+                        terf.write(b"\x1b[H\x1b[2K\x1b[0m> ")?;
+                        write!(terf, "{e}")?;
+                    }
+                }
+            }
+            'd' => {
+                 test.delete(&sel);
             }
             _ => (),
         }
@@ -339,19 +355,40 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn prompt<O: Write + AsRawFd, I: Read + BufRead + AsRawFd>(terf: &mut llywterf::TerfLleol<O, I> ) -> Result<String> {
+    terf.write(b"\x1b[H\x1b[2K\x1b[0m> ")?;
+    terf.flush()?;
+    let mut buff = String::with_capacity(16);
+    terf.newid().echo(true).canon(true).atod()?;
+    let l = terf.read_line(&mut buff)?;
+    buff.truncate(l - 1);
+    terf.newid().echo(false).canon(false).atod()?;
+    return Ok(buff);
+}
+
+
 trait Arbed where Self: Sized {
     fn arbed<W: Write>(&self, allbwn: &mut W) -> Result<()>;
-    fn llwytho<R: Read>(whr: &mut MaybeUninit<Self>, mewnbwn: &mut R) -> Result<()>;
+    fn llwytho<R: Read>(mewnbwn: &mut R) -> Result<Self>;
 }
-impl Arbed for usize  {
+impl Arbed for u8 {
     fn arbed<W: Write>(&self, allbwn: &mut W) -> Result<()> {
         allbwn.write(&self.to_le_bytes()).and(Ok(()))
     }
-    fn llwytho< R: Read>(whr: &mut MaybeUninit<Self>, mewnbwn: &mut R) -> Result<()> {
+    fn llwytho< R: Read>(mewnbwn: &mut R) -> Result<Self> {
         let mut buff: [u8; size_of::<Self>()] = [0; size_of::<Self>()];
         mewnbwn.read_exact(&mut buff)?;
-        whr.write(usize::from_le_bytes(buff));
-        Ok(())
+        Ok(Self::from_le_bytes(buff))
+    }
+}
+impl Arbed for u16 {
+    fn arbed<W: Write>(&self, allbwn: &mut W) -> Result<()> {
+        allbwn.write(&self.to_le_bytes()).and(Ok(()))
+    }
+    fn llwytho< R: Read>(mewnbwn: &mut R) -> Result<Self> {
+        let mut buff: [u8; size_of::<Self>()] = [0; size_of::<Self>()];
+        mewnbwn.read_exact(&mut buff)?;
+        Ok(Self::from_le_bytes(buff))
     }
 }
 impl Arbed for bool {
@@ -360,19 +397,69 @@ impl Arbed for bool {
         allbwn.write(&buff)?;
         Ok(())
     }
-    fn llwytho<R: Read>(whr: &mut MaybeUninit<Self>, mewnbwn: &mut R) -> Result<()> {
+    fn llwytho<R: Read>(mewnbwn: &mut R) -> Result<Self> {
         let mut buff: [u8; 1] = [ 0 ];
         mewnbwn.read_exact(&mut buff)?;
-        whr.write(u8::from_le_bytes(buff) != 0);
-        Ok(())
+        Ok(u8::from_le_bytes(buff) != 0)
     }
 }
 impl<T: Arbed> Arbed for Vec<T> {
     fn arbed<W: Write>(&self, allbwn: &mut W) -> Result<()> {
-        todo!("Implement");
+        (self.len() as u8).arbed(allbwn);
+        for i in self { i.arbed(allbwn); }
+        Ok(())
     }
-    fn llwytho<R: Read>(whr: &mut MaybeUninit<Self>, mewnbwn: &mut R) -> Result<()> {
-        todo!("Implement");
+    fn llwytho<R: Read>(mewnbwn: &mut R) -> Result<Self> {
+        let mut temp = Vec::with_capacity(u8::llwytho(mewnbwn)? as usize);
+        for _ in 0 .. temp.capacity() {
+            temp.push(T::llwytho(mewnbwn)?)
+        }
+        Ok(temp)
+    } 
+}
+
+impl Arbed for String {
+    fn arbed<W: Write>(&self, allbwn: &mut W) -> Result<()> {
+        (self.len() as u16).arbed(allbwn)?;
+        allbwn.write(self.as_bytes())?;
+        Ok(())
+    }
+    fn llwytho<R: Read>(mewnbwn: &mut R) -> Result<Self> {
+        let mut buff = vec![0u8; u16::llwytho(mewnbwn)? as usize];
+        mewnbwn.read_exact(&mut buff)?;
+        match String::from_utf8(buff) {
+            Ok(msg) => Ok(msg),
+            Err(e)  => Err(Error::new(ErrorKind::Other, e))
+        } 
+    }
+}
+
+impl Arbed for TodoItem {
+    fn arbed<W: Write>(&self, allbwn: &mut W) -> Result<()> {
+        match self {
+            TodoItem::Task(c, msg) => {
+                u8::arbed(&0, allbwn)?;
+                c.arbed(allbwn)?;
+                msg.arbed(allbwn)?;
+            }
+            TodoItem::Group(msg, xs) => {
+                u8::arbed(&1, allbwn)?;
+                msg.arbed(allbwn)?;
+                xs.arbed(allbwn)?;
+            }
+        }
+        Ok(())
+    }
+    fn llwytho<R: Read>(mewnbwn: &mut R) -> Result<Self> {
+        match u8::llwytho(mewnbwn)? {
+            0 => {
+                Ok(TodoItem::Task(bool::llwytho(mewnbwn)?, String::llwytho(mewnbwn)?))
+            }
+            1 => {
+                Ok(TodoItem::Group(String::llwytho(mewnbwn)?, Vec::<TodoItem>::llwytho(mewnbwn)?))
+            }
+            x => panic!("couldn't llwytho TodoItem of id {x}"),
+        }
     }
 }
 

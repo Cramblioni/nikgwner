@@ -2,7 +2,7 @@
 //
 // Should be usable
 
-use std::io::{self, prelude::*, Write};
+use std::io::{self, Read, Write, BufRead};
 use std::mem::MaybeUninit;
 use std::os::fd::{AsRawFd, RawFd};
 
@@ -131,6 +131,28 @@ impl<'a, O: Write + AsRawFd, I: Read + AsRawFd> Newidiad<'a, O, I> {
     pub fn llawnsgrin(&mut self, value: bool) -> &mut Self {
         self.llawnsgrin = Some(value);
         self
+    }
+}
+
+impl<O: Write + AsRawFd, I: Read + AsRawFd> Read for TerfLleol<O, I> {
+    fn read(&mut self, buff: &mut [u8]) -> io::Result<usize> {
+        self.mewnbwn.read(buff)
+    }
+}
+impl<O: Write + AsRawFd, I: Read + AsRawFd> Write for TerfLleol<O, I> {
+    fn write(&mut self, buff: & [u8]) -> io::Result<usize> {
+        self.allbwn.write(buff)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.allbwn.flush()
+    }
+}
+impl<O: Write + AsRawFd, I: BufRead + AsRawFd> BufRead for TerfLleol<O, I> {
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        self.mewnbwn.fill_buf()
+    }
+    fn consume(&mut self, amt: usize) {
+        self.mewnbwn.consume(amt)
     }
 }
 
