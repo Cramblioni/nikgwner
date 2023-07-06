@@ -145,6 +145,7 @@ impl TodoItem {
         Some(cur)
     }
     fn get_prior_mut(&mut self, sel: &Selection) -> Option<&mut Self> {
+        if sel.0.len() == 0 {return None}
         let mut cur = self;
         for i in 0..sel.0.len() - 1 {
             let i = sel.0[i];
@@ -191,7 +192,7 @@ impl TodoItem {
                     }
                 }
             }).is_some(),
-            CursMove::Up   => self.get_prior(sel).and_then(|x| {
+            CursMove::Up   => self.get_prior(sel).and_then(|_| {
                 if sel.0.len() == 0 { return None; }
                 let prior_ind = sel.0[sel.0.len() - 1] as usize;
                 if prior_ind > 0 {Some(())} else {None}
@@ -252,8 +253,8 @@ fn main() -> Result<()> {
     println!("setting llywterf");
     terf.newid().canon(false).echo(false).llawnsgrin(true).atod()?;
     println!("Continuing");
-
-    let mut test = TodoItem::Group(
+    let mut source = None;
+    let mut cur_todo = TodoItem::Group(
         String::from("test 1"),
         vec![
             TodoItem::Group(String::from("test 1.1"), vec![
@@ -270,41 +271,28 @@ fn main() -> Result<()> {
 
     let mut sel = Selection(vec![]);
 
-    /*
-    'testo: {
-        
-        println!("Testing arbed and lwytho");
-        let mut buff = Vec::<u8>::with_capacity(32);
-        test.arbed(&mut buff)?;
-        println!("llwytho object");
-        let out = TodoItem::llwytho(&mut VecRead::new(buff))?;
-        out.render(1, &mut stdout(), None)?;
-        
-        // todo!("Re-start saving tests");
-        terf.ungell()?;
-    }
-    */
-    
     loop {
         println!("\x1b[2J\x1b[1;1H");
-        test.render(1, &mut stdout(), Some(&sel))?;
+        write!(terf, "{}\n", source.as_ref().unwrap_or(&String::with_capacity(0)))?;
+        while !cur_todo.bound(&sel) {sel.0.pop();}
+        cur_todo.render(1, &mut stdout(), Some(&sel))?;
         let lth = terf.ungell()?;
         if lth.is_none() {break;}
         match lth.unwrap() {
             'q' => break,
-            ' ' => {test.get_mut(&sel).map(|x| x.complete(!x.completed()));},
-            'h' => test.do_move(&mut sel, CursMove::Out),
-            'l' => test.do_move(&mut sel, CursMove::In),
-            'j' => test.do_move(&mut sel, CursMove::Down),
-            'k' => test.do_move(&mut sel, CursMove::Up),
+            ' ' => {cur_todo.get_mut(&sel).map(|x| x.complete(!x.completed()));},
+            'h' => cur_todo.do_move(&mut sel, CursMove::Out),
+            'l' => cur_todo.do_move(&mut sel, CursMove::In),
+            'j' => cur_todo.do_move(&mut sel, CursMove::Down),
+            'k' => cur_todo.do_move(&mut sel, CursMove::Up),
             'J' => 'round: {
                 // in, down, out'n'down
-                if test.check_move(&sel, CursMove::In)   {sel.do_move(CursMove::In);   break 'round;}
-                if test.check_move(&sel, CursMove::Down) {sel.do_move(CursMove::Down); break 'round;}
-                if test.check_move(&sel, CursMove::Out)  {
+                if cur_todo.check_move(&sel, CursMove::In)   {sel.do_move(CursMove::In);   break 'round;}
+                if cur_todo.check_move(&sel, CursMove::Down) {sel.do_move(CursMove::Down); break 'round;}
+                if cur_todo.check_move(&sel, CursMove::Out)  {
                     let save = Selection(sel.0.clone());
                     sel.do_move(CursMove::Out);
-                    if !test.check_move(&sel, CursMove::Down) {
+                    if !cur_todo.check_move(&sel, CursMove::Down) {
                         sel = save;
                         break 'round;
                     }
@@ -313,33 +301,44 @@ fn main() -> Result<()> {
                 }
             }
             'K' => 'round: {
-                // out, up 
-                if test.check_move(&sel, CursMove::Up) {
+                // out, up
+                if cur_todo.check_move(&sel, CursMove::Up) {
                     sel.do_move(CursMove::Up);
-                    while test.check_move(&sel, CursMove::In) {
+                    while cur_todo.check_move(&sel, CursMove::In) {
                         sel.do_move(CursMove::In);
-                        while test.check_move(&sel, CursMove::Down) {
+                        while cur_todo.check_move(&sel, CursMove::Down) {
                             sel.do_move(CursMove::Down);
                         }
                     }
                     break 'round;
                 }
-                if test.check_move(&sel, CursMove::Out) {sel.do_move(CursMove::Out); break 'round;} 
+                if cur_todo.check_move(&sel, CursMove::Out) {sel.do_move(CursMove::Out); break 'round;}
             }
             'i' => {
                 let item = prompt(&mut terf)?;
-                test.get_mut(&sel).map( move |x|x.insert(TodoItem::Task(false, item)));
+                cur_todo.get_mut(&sel).map( move |x|x.insert(TodoItem::Task(false, item)));
                 terf.newid().echo(false).canon(false).atod()?;
                 /* get input, trim, insert */
             }
             'w' => {
-                let mut file = File::create(prompt(&mut terf)?)?;
-                test.arbed(&mut file)?;
-            }
+                let path = prompt(&mut terf)?;
+                let mut file = if !path.is_empty() {
+                    let file = File::create(&path)?;
+                    source.insert(path);
+                    file
+                } else {
+                    File::create(&path)?
+                };
+                cur_todo.arbed(&mut file)?;
+            },
             'W' => {
-                let mut file = File::open(prompt(&mut terf)?)?;
+                let path = prompt(&mut terf)?;
+                let mut file = File::open(&path)?;
                 match TodoItem::llwytho(&mut file) {
-                    Ok(nxt) => { test = nxt;  }
+                    Ok(nxt) => { 
+                        cur_todo = nxt;
+                        source.insert(path);
+                    }
                     Err(e)  => {
                         terf.write(b"\x1b[H\x1b[2K\x1b[0m> ")?;
                         write!(terf, "{e}")?;
@@ -347,10 +346,14 @@ fn main() -> Result<()> {
                 }
             }
             'd' => {
-                 test.delete(&sel);
+                 cur_todo.delete(&sel);
             }
             _ => (),
         }
+    }
+    if let Some(source) = source {
+        let mut file = File::create(source)?;
+        cur_todo.arbed(&mut file)?;
     }
     Ok(())
 }
@@ -405,8 +408,8 @@ impl Arbed for bool {
 }
 impl<T: Arbed> Arbed for Vec<T> {
     fn arbed<W: Write>(&self, allbwn: &mut W) -> Result<()> {
-        (self.len() as u8).arbed(allbwn);
-        for i in self { i.arbed(allbwn); }
+        (self.len() as u8).arbed(allbwn)?;
+        for i in self { i.arbed(allbwn)?; }
         Ok(())
     }
     fn llwytho<R: Read>(mewnbwn: &mut R) -> Result<Self> {
@@ -415,7 +418,7 @@ impl<T: Arbed> Arbed for Vec<T> {
             temp.push(T::llwytho(mewnbwn)?)
         }
         Ok(temp)
-    } 
+    }
 }
 
 impl Arbed for String {
@@ -430,7 +433,7 @@ impl Arbed for String {
         match String::from_utf8(buff) {
             Ok(msg) => Ok(msg),
             Err(e)  => Err(Error::new(ErrorKind::Other, e))
-        } 
+        }
     }
 }
 
@@ -461,23 +464,4 @@ impl Arbed for TodoItem {
             x => panic!("couldn't llwytho TodoItem of id {x}"),
         }
     }
-}
-
-struct VecRead<T>(Vec<T>, usize);
-impl<T> VecRead<T> { fn new(inp: Vec<T>) -> Self { VecRead(inp, 0) } }
-impl Read for VecRead<u8> {
-    fn read(&mut self, targ: &mut [u8]) -> Result<usize> {
-        if targ.len() <= self.0.len() - self.1 {
-            for i in self.1 .. self.1 + targ.len() {
-                targ[i - self.1] = self.0[i];
-            }
-            self.1 += targ.len();
-            return Ok(targ.len());
-        }
-        let l = self.0.len() - self.1;
-        for i in 0 .. l {
-            targ[i] = self.0[self.1 + i];
-        }
-        Ok(l)
-    } 
 }
